@@ -1,0 +1,83 @@
+# ================================
+# Build artifacts (C / GCC / Clang)
+# ================================
+*.o
+*.a
+*.so
+*.dll
+*.exe
+*.out
+mnist
+a.out
+
+# ================================
+# Debug / profiling
+# ================================
+*.dSYM/
+vgcore.*
+gmon.out
+perf.data*
+callgrind.out.*
+
+# ================================
+# Python
+# ================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# ================================
+# Python package managers
+# ================================
+pip-wheel-metadata/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# ================================
+# Dataset & generated binaries
+# ================================
+*.mat
+*.gz
+
+# ================================
+# MNIST downloads (safety)
+# ================================
+train-images-idx3-ubyte.gz
+train-labels-idx1-ubyte.gz
+t10k-images-idx3-ubyte.gz
+t10k-labels-idx1-ubyte.gz
+
+# ================================
+# Editors & OS noise
+# ================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ================================
+# Logs
+# ================================
+*.log
+
+# ================================
+# Temporary files
+# ================================
+*.tmp
+*.temp
+
+# ================================
+# WSL / Linux
+# ================================
+.nfs*
+
