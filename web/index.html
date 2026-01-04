@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>MNIST WASM</title>
+    <style>
+        canvas {
+            border: 2px solid black;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Draw a digit (0–9)</h2>
+
+    <canvas id="canvas" width="280" height="280"></canvas>
+    <br><br>
+
+    <button id="predictBtn">Predict</button>
+
+    <h3 id="result">Prediction: ?</h3>
+
+    <script type="module" src="mnist.js"></script>
+</body>
+
+
+</html>

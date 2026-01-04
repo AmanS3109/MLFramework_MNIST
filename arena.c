@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #include "arena.h"
 
 #include <unistd.h>
@@ -155,65 +157,81 @@ void arena_scratch_destroy_all(void)
 
 #if defined(_WIN32)
 
+/* ---------- Windows ---------- */
+
 #include <windows.h>
 
-u32 plat_get_pagesize(void)
-{
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
-    return info.dwPageSize;
+u32 plat_get_pagesize(void) {
+    SYSTEM_INFO sysinfo = {0};
+    GetSystemInfo(&sysinfo);
+    return sysinfo.dwPageSize;
 }
 
-void* plat_mem_reserve(u64 size)
-{
+void* plat_mem_reserve(u64 size) {
     return VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_READWRITE);
 }
 
-b32 plat_mem_commit(void* ptr, u64 size)
-{
+b32 plat_mem_commit(void* ptr, u64 size) {
     return VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != NULL;
 }
 
-b32 plat_mem_decommit(void* ptr, u64 size)
-{
-    return VirtualFree(ptr, size, MEM_DECOMMIT);
-}
-
-b32 plat_mem_release(void* ptr, u64 size)
-{
+b32 plat_mem_release(void* ptr, u64 size) {
     (void)size;
     return VirtualFree(ptr, 0, MEM_RELEASE);
 }
 
 #elif defined(__linux__)
 
-u32 plat_get_pagesize(void)
-{
+/* ---------- Linux ---------- */
+
+u32 plat_get_pagesize(void) {
     return (u32)sysconf(_SC_PAGESIZE);
 }
 
-void* plat_mem_reserve(u64 size)
-{
-    void* p = mmap(NULL, size, PROT_NONE,
-                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+void* plat_mem_reserve(u64 size) {
+    void* p = mmap(NULL, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     return (p == MAP_FAILED) ? NULL : p;
 }
 
-b32 plat_mem_commit(void* ptr, u64 size)
-{
+b32 plat_mem_commit(void* ptr, u64 size) {
     return mprotect(ptr, size, PROT_READ | PROT_WRITE) == 0;
 }
 
-b32 plat_mem_decommit(void* ptr, u64 size)
-{
-    madvise(ptr, size, MADV_DONTNEED);
-    return mprotect(ptr, size, PROT_NONE) == 0;
-}
-
-b32 plat_mem_release(void* ptr, u64 size)
-{
+b32 plat_mem_release(void* ptr, u64 size) {
     return munmap(ptr, size) == 0;
 }
 
+#elif defined(__EMSCRIPTEN__)
+
+/* ---------- WebAssembly ---------- */
+
+/*
+ WASM has no mmap / VirtualAlloc.
+ We back the arena with malloc.
+*/
+
+u32 plat_get_pagesize(void) {
+    return 65536; // WASM page size (64KB)
+}
+
+void* plat_mem_reserve(u64 size) {
+    return malloc((size_t)size);
+}
+
+b32 plat_mem_commit(void* ptr, u64 size) {
+    (void)ptr;
+    (void)size;
+    return true; // malloc already committed
+}
+
+b32 plat_mem_release(void* ptr, u64 size) {
+    (void)size;
+    free(ptr);
+    return true;
+}
+
+#else
+#error "Unsupported platform"
 #endif
+
 
