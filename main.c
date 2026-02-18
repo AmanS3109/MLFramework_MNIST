@@ -154,7 +154,10 @@ void model_train(
 
 void draw_mnist_digit(f32* data);
 void create_mnist_model(mem_arena* arena, model_context* model);
+void model_save_weights(model_context* model, const char* filename);
+void model_load_weights_from_buffer(model_context* model, const u8* data, u32 size);
 
+#ifndef WASM_BUILD
 int main(void) {
     mem_arena* perm_arena = arena_create(GiB(1), MiB(1));
 
@@ -203,9 +206,9 @@ int main(void) {
         .test_images = test_images,
         .test_labels = test_labels,
 
-        .epochs = 10,
-        .batch_size = 50,
-        .learning_rate = 0.01f
+        .epochs = 15,
+        .batch_size = 64,
+        .learning_rate = 0.005f
     };
     model_train(model, &training_desc);
     
@@ -217,11 +220,14 @@ int main(void) {
     }
     printf("\n\n");
 
+    model_save_weights(model, "web/mnist_weights.bin");
+    printf("Weights saved to web/mnist_weights.bin\n");
 
     arena_destroy(perm_arena);
 
     return 0;
 }
+#endif /* WASM_BUILD */
 
 void draw_mnist_digit(f32* data) {
     for (u32 y = 0; y < 28; y++) {
@@ -235,22 +241,62 @@ void draw_mnist_digit(f32* data) {
     printf("\x1b[0m");
 }
 
+void model_save_weights(model_context* model, const char* filename) {
+    FILE* f = fopen(filename, "wb");
+    if (!f) {
+        printf("ERROR: Could not open %s for writing\n", filename);
+        return;
+    }
+
+    // Write all parameter tensors in order
+    for (u32 i = 0; i < model->cost_prog.size; i++) {
+        model_var* cur = model->cost_prog.vars[i];
+        if ((cur->flags & MV_FLAG_PARAMETER) != MV_FLAG_PARAMETER) {
+            continue;
+        }
+
+        u64 num_floats = (u64)cur->val->rows * cur->val->cols;
+        fwrite(cur->val->data, sizeof(f32), (size_t)num_floats, f);
+    }
+
+    fclose(f);
+}
+
+void model_load_weights_from_buffer(model_context* model, const u8* data, u32 size) {
+    u32 offset = 0;
+
+    for (u32 i = 0; i < model->forward_prog.size; i++) {
+        model_var* cur = model->forward_prog.vars[i];
+        if ((cur->flags & MV_FLAG_PARAMETER) != MV_FLAG_PARAMETER) {
+            continue;
+        }
+
+        u64 num_bytes = (u64)cur->val->rows * cur->val->cols * sizeof(f32);
+        if (offset + num_bytes > size) {
+            return; // not enough data
+        }
+
+        memcpy(cur->val->data, data + offset, (size_t)num_bytes);
+        offset += (u32)num_bytes;
+    }
+}
+
 void create_mnist_model(mem_arena* arena, model_context* model) {
     model_var* input = mv_create(arena, model, 784, 1, MV_FLAG_INPUT);
 
-    model_var* W0 = mv_create(arena, model, 16, 784, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
-    model_var* W1 = mv_create(arena, model, 16, 16, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
-    model_var* W2 = mv_create(arena, model, 10, 16, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
+    model_var* W0 = mv_create(arena, model, 128, 784, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
+    model_var* W1 = mv_create(arena, model, 64, 128, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
+    model_var* W2 = mv_create(arena, model, 10, 64, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
 
-    f32 bound0 = sqrtf(6.0f / (784 + 16));
-    f32 bound1 = sqrtf(6.0f / (16 + 16));
-    f32 bound2 = sqrtf(6.0f / (16 + 10));
+    f32 bound0 = sqrtf(6.0f / (784 + 128));
+    f32 bound1 = sqrtf(6.0f / (128 + 64));
+    f32 bound2 = sqrtf(6.0f / (64 + 10));
     mat_fill_rand(W0->val, -bound0, bound0);
     mat_fill_rand(W1->val, -bound1, bound1);
     mat_fill_rand(W2->val, -bound2, bound2);
 
-    model_var* b0 = mv_create(arena, model, 16, 1, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
-    model_var* b1 = mv_create(arena, model, 16, 1, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
+    model_var* b0 = mv_create(arena, model, 128, 1, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
+    model_var* b1 = mv_create(arena, model, 64, 1, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
     model_var* b2 = mv_create(arena, model, 10, 1, MV_FLAG_REQUIRES_GRAD | MV_FLAG_PARAMETER);
 
     model_var* z0_a = mv_matmul(arena, model, W0, input, 0);
@@ -259,8 +305,7 @@ void create_mnist_model(mem_arena* arena, model_context* model) {
 
     model_var* z1_a = mv_matmul(arena, model, W1, a0, 0);
     model_var* z1_b = mv_add(arena, model, z1_a, b1, 0);
-    model_var* z1_c = mv_relu(arena, model, z1_b, 0);
-    model_var* a1 = mv_add(arena, model, a0, z1_c, 0);
+    model_var* a1 = mv_relu(arena, model, z1_b, 0);
 
     model_var* z2_a = mv_matmul(arena, model, W2, a1, 0);
     model_var* z2_b = mv_add(arena, model, z2_a, b2, 0);
@@ -386,7 +431,7 @@ b32 mat_add(matrix* out, const matrix* a, const matrix* b) {
         out->data[i] = a->data[i] + b->data[i];
     }
 
-    return false;
+    return true;
 }
 
 b32 mat_sub(matrix* out, const matrix* a, const matrix* b) {
@@ -402,7 +447,7 @@ b32 mat_sub(matrix* out, const matrix* a, const matrix* b) {
         out->data[i] = a->data[i] - b->data[i];
     }
 
-    return false;
+    return true;
 }
 
 void _mat_mul_nn(matrix* out, const matrix* a, const matrix* b) {
@@ -500,9 +545,15 @@ b32 mat_softmax(matrix* out, const matrix* in) {
 
     u64 size = (u64)out->rows * out->cols;
 
+    // Find max for numerical stability
+    f32 max_val = in->data[0];
+    for (u64 i = 1; i < size; i++) {
+        if (in->data[i] > max_val) max_val = in->data[i];
+    }
+
     f32 sum = 0.0f;
     for (u64 i = 0; i < size; i++) {
-        out->data[i] = expf(in->data[i]);
+        out->data[i] = expf(in->data[i] - max_val);
         sum += out->data[i];
     }
 
@@ -858,7 +909,7 @@ void model_prog_compute_grads(model_program* prog) {
     for (i64 i = (i64)prog->size - 1; i >= 0; i--) {
         model_var* cur = prog->vars[i];
 
-        if ((cur->flags * MV_FLAG_REQUIRES_GRAD) == 0) {
+        if ((cur->flags & MV_FLAG_REQUIRES_GRAD) == 0) {
             continue;
         }
 

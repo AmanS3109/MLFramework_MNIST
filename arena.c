@@ -2,14 +2,6 @@
 
 #include "arena.h"
 
-#include <unistd.h>
-#include <sys/mman.h>
-#include <errno.h>
-
-#ifndef MADV_DONTNEED
-#define MADV_DONTNEED 4
-#endif
-
 
 #define ARENA_ASSERT(x) do { if (!(x)) __builtin_trap(); } while(0)
 
@@ -183,6 +175,10 @@ b32 plat_mem_release(void* ptr, u64 size) {
 #elif defined(__linux__)
 
 /* ---------- Linux ---------- */
+
+#include <unistd.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 u32 plat_get_pagesize(void) {
     return (u32)sysconf(_SC_PAGESIZE);

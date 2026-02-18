@@ -45,11 +45,22 @@ void wasm_init(void) {
         return; // already initialized
     }
 
-    g_arena = arena_create(MiB(256), MiB(1));
+    g_arena = arena_create(MiB(16), MiB(1));
     g_model = model_create(g_arena);
 
     create_mnist_model(g_arena, g_model);
     model_compile(g_arena, g_model);
+}
+
+/*
+ Load pre-trained weights from a buffer.
+ data must point to the raw bytes of mnist_weights.bin.
+ This should be called after wasm_init and before wasm_predict.
+*/
+__attribute__((used))
+void wasm_load_weights(const u8* data, u32 size) {
+    if (g_model == NULL) return;
+    model_load_weights_from_buffer(g_model, data, size);
 }
 
 /*
@@ -73,4 +84,15 @@ u32 wasm_predict(const f32* input784) {
 
     // Return predicted digit
     return mat_argmax(g_model->output->val);
+}
+
+/*
+ Get the confidence score for a specific digit (0-9).
+ Must be called after wasm_predict.
+ Returns the softmax probability for the given digit.
+*/
+__attribute__((used))
+f32 wasm_get_confidence(u32 digit) {
+    if (digit >= 10 || g_model == NULL) return 0.0f;
+    return g_model->output->val->data[digit];
 }

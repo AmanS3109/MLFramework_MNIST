@@ -3,27 +3,519 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>MNIST WASM</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MNIST Digit Recognizer — Neural Network in Your Browser</title>
+    <meta name="description"
+        content="Draw a digit and watch a neural network recognize it in real-time. Runs entirely in your browser via WebAssembly." />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet" />
     <style>
-        canvas {
-            border: 2px solid black;
-            image-rendering: pixelated;
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-card: rgba(18, 18, 28, 0.85);
+            --bg-canvas: #0d0d14;
+            --border: rgba(255, 255, 255, 0.06);
+            --text-primary: #f0f0f5;
+            --text-secondary: #8888a0;
+            --text-muted: #555570;
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --bar-bg: rgba(255, 255, 255, 0.04);
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+
+        /* Animated gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+            animation: bgShift 20s ease-in-out infinite alternate;
+            z-index: -1;
+        }
+
+        @keyframes bgShift {
+            0% {
+                transform: translate(0, 0) rotate(0deg);
+            }
+
+            100% {
+                transform: translate(-5%, 3%) rotate(3deg);
+            }
+        }
+
+        .container {
+            max-width: 520px;
+            width: 100%;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #f0f0f5, #a5a5c0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 100px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--accent-hover);
+            margin-bottom: 12px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .badge .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        /* Card */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            backdrop-filter: blur(20px);
+            overflow: hidden;
+        }
+
+        .card-body {
+            padding: 28px;
+        }
+
+        /* Canvas area */
+        .canvas-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            max-width: 360px;
+            margin: 0 auto 20px;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: var(--bg-canvas);
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: crosshair;
+            touch-action: none;
+            image-rendering: auto;
+        }
+
+        .canvas-label {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            pointer-events: none;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+
+        .canvas-wrapper:hover .canvas-label,
+        .canvas-wrapper.drawing .canvas-label {
+            opacity: 0;
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 16px var(--accent-glow);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 24px var(--accent-glow);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        /* Prediction result */
+        .result {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .result-digit {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 4px;
+            background: linear-gradient(135deg, var(--accent), #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            transition: all 0.3s ease;
+        }
+
+        .result-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+        }
+
+        .result.empty .result-digit {
+            color: var(--text-muted);
+            -webkit-text-fill-color: var(--text-muted);
+            background: none;
+        }
+
+        /* Confidence bars */
+        .confidence-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .confidence-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .confidence-digit {
+            width: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-align: center;
+            color: var(--text-muted);
+            transition: color 0.3s;
+        }
+
+        .confidence-digit.active {
+            color: var(--accent-hover);
+        }
+
+        .confidence-track {
+            flex: 1;
+            height: 8px;
+            background: var(--bar-bg);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 4px;
+            background: linear-gradient(90deg, var(--accent), #a78bfa);
+            width: 0%;
+            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .confidence-fill.top {
+            background: linear-gradient(90deg, var(--accent), #818cf8);
+        }
+
+        .confidence-pct {
+            width: 42px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-align: right;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+            transition: color 0.3s;
+        }
+
+        .confidence-pct.active {
+            color: var(--accent-hover);
+        }
+
+        /* Dividers */
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 20px 0;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 16px 28px;
+            border-top: 1px solid var(--border);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--accent-hover);
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 10, 15, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            z-index: 10;
+            border-radius: var(--radius);
+            transition: opacity 0.4s ease;
+        }
+
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Status indicator */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px;
+            font-size: 0.7rem;
+            color: var(--success);
+            font-weight: 500;
+        }
+
+        .status-bar .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+
+        .status-bar.error {
+            color: var(--danger);
+        }
+
+        .status-bar.error .status-dot {
+            background: var(--danger);
+        }
+
+        /* Dark scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            body {
+                padding: 16px;
+            }
+
+            .card-body {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 1.4rem;
+            }
+
+            .canvas-wrapper {
+                max-width: 280px;
+            }
+
+            .result-digit {
+                font-size: 3rem;
+            }
         }
     </style>
 </head>
 
 <body>
-    <h2>Draw a digit (0–9)</h2>
+    <div class="container">
+        <div class="header">
+            <div class="badge">
+                <span class="dot"></span>
+                WebAssembly Powered
+            </div>
+            <h1>MNIST Digit Recognizer</h1>
+            <p>Draw a digit (0–9) and the neural network will recognize it instantly. Runs entirely in your browser.</p>
+        </div>
 
-    <canvas id="canvas" width="280" height="280"></canvas>
-    <br><br>
+        <div class="card" style="position: relative;">
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner"></div>
+                <div class="loading-text" id="loadingText">Loading neural network…</div>
+            </div>
 
-    <button id="predictBtn">Predict</button>
+            <div class="card-body">
+                <div class="canvas-wrapper" id="canvasWrapper">
+                    <canvas id="canvas" width="560" height="560"></canvas>
+                    <div class="canvas-label">Draw here</div>
+                </div>
 
-    <h3 id="result">Prediction: ?</h3>
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="predictBtn" disabled>Predict</button>
+                    <button class="btn btn-secondary" id="clearBtn">Clear</button>
+                </div>
+
+                <div class="result empty" id="resultSection">
+                    <div class="result-digit" id="resultDigit">?</div>
+                    <div class="result-label">Prediction</div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="confidence-grid" id="confidenceGrid"></div>
+            </div>
+
+            <div class="footer">
+                Custom C neural network (784→128→64→10) compiled to WASM<br>
+                Trained on 60,000 MNIST samples • <a href="https://github.com" target="_blank">View source</a>
+            </div>
+        </div>
+
+        <div class="status-bar" id="statusBar" style="display: none;">
+            <span class="status-dot"></span>
+            <span id="statusText">Ready</span>
+        </div>
+    </div>
 
     <script type="module" src="mnist.js"></script>
 </body>
-
 
 </html>
